@@ -419,18 +419,21 @@ function ScoreScreen({ school, nav, showToast }) {
   const total = SCORING_CRITERIA.length
 
   const handleScore = (value) => {
-    setScores(prev => ({ ...prev, [criterion.id]: value }))
+    const updated = { ...scores, [criterion.id]: value }
+    setScores(updated)
+    store.saveVisit(school.id, { scores: updated, scoreNotes: notes })
   }
 
   const handleNote = (text) => {
-    setNotes(prev => ({ ...prev, [criterion.id]: text }))
+    const updated = { ...notes, [criterion.id]: text }
+    setNotes(updated)
+    store.saveVisit(school.id, { scores, scoreNotes: updated })
   }
 
   const handleNext = () => {
     if (step < total - 1) {
       setStep(step + 1)
     } else {
-      store.saveVisit(school.id, { scores, scoreNotes: notes })
       showToast('Scores saved!')
       nav('detail', school)
     }
