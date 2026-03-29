@@ -508,15 +508,18 @@ function ScoreScreen({ school, nav, showToast }) {
             <div
               key={c.id}
               onClick={() => setStep(i)}
+              title={c.title}
               style={{
-                width: 36, height: 36, borderRadius: 8,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                width: 44, height: 44, borderRadius: 10,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                gap: 1, cursor: 'pointer',
                 background: i === step ? 'var(--blue)' : scores[c.id] ? 'var(--blue-light)' : 'var(--gray-100)',
                 color: i === step ? 'white' : scores[c.id] ? 'var(--blue)' : 'var(--gray-400)',
+                border: i === step ? '2px solid var(--blue)' : '2px solid transparent',
               }}
             >
-              {scores[c.id] || '—'}
+              <span style={{ fontSize: 16, lineHeight: 1 }}>{c.icon}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, lineHeight: 1 }}>{scores[c.id] || '—'}</span>
             </div>
           ))}
         </div>
