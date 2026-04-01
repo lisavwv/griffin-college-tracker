@@ -1,10 +1,13 @@
 // Data store: localStorage for instant reads, Supabase for cross-device sync
 import { supabase } from './supabase'
 
+import { SCORING_CRITERIA, getCriteriaForTourType } from './questions'
+
 const STORAGE_KEYS = {
   visits: 'gct_visits',
   essayNotes: 'gct_essay_notes',
   customSchools: 'gct_custom_schools',
+  weights: 'gct_weights',
   lastSync: 'gct_last_sync',
 };
 
@@ -107,25 +110,66 @@ export function deleteCustomSchool(schoolId) {
 }
 
 // ============================================================
+// PRIORITY WEIGHTS (drag-to-rank order)
+// ============================================================
+
+// Returns array of criterion IDs in priority order (index 0 = most important)
+export function getPriorityOrder() {
+  const data = localStorage.getItem(STORAGE_KEYS.weights);
+  if (data) return JSON.parse(data);
+  // Default: current order in SCORING_CRITERIA
+  return SCORING_CRITERIA.map(c => c.id);
+}
+
+export function savePriorityOrder(order) {
+  localStorage.setItem(STORAGE_KEYS.weights, JSON.stringify(order));
+  _syncWeightsToSupabase(order);
+}
+
+// Convert rank position to weight: #1 = 13, #2 = 12, ... #13 = 1
+export function getWeightsMap() {
+  const order = getPriorityOrder();
+  const total = SCORING_CRITERIA.length; // 13
+  const map = {};
+  order.forEach((id, i) => { map[id] = total - i; });
+  // Fill in any missing criteria with weight 1
+  SCORING_CRITERIA.forEach(c => { if (!map[c.id]) map[c.id] = 1; });
+  return map;
+}
+
+// ============================================================
 // RANKINGS
 // ============================================================
 
 export function getRankings() {
   const visits = getVisits();
+  const weights = getWeightsMap();
   const ranked = [];
   for (const [schoolId, visit] of Object.entries(visits)) {
     if (visit.scores) {
-      const total = Object.values(visit.scores).reduce((sum, s) => sum + (s || 0), 0);
+      const tourType = visit.tourType || 'official';
+      const applicable = getCriteriaForTourType(tourType);
+      // Raw: sum of scores / max possible for tour type
+      const rawSum = applicable.reduce((sum, c) => sum + (visit.scores[c.id] || 0), 0);
+      const rawMax = applicable.length * 10;
+      const rawPct = rawMax > 0 ? Math.round((rawSum / rawMax) * 100) : 0;
+      // Weighted: sum(score * weight) / sum(10 * weight) for applicable criteria
+      const weightedSum = applicable.reduce((sum, c) => sum + (visit.scores[c.id] || 0) * (weights[c.id] || 1), 0);
+      const weightedMax = applicable.reduce((sum, c) => sum + 10 * (weights[c.id] || 1), 0);
+      const weightedPct = weightedMax > 0 ? Math.round((weightedSum / weightedMax) * 100) : 0;
       ranked.push({
         schoolId,
-        total,
+        total: rawSum,
+        rawPct,
+        weightedPct,
         scores: visit.scores,
         tier: visit.tier,
+        tourType,
         dateVisited: visit.dateVisited,
       });
     }
   }
-  ranked.sort((a, b) => b.total - a.total);
+  ranked.sort((a, b) => b.weightedPct - a.weightedPct);
   return ranked;
 }
 
@@ -163,6 +207,7 @@ async function _syncVisitToSupabase(schoolId, visit) {
       score_notes: visit.scoreNotes || {},
       low_interest_reason: visit.lowInterestReason || null,
       low_interest_comment: visit.lowInterestComment || null,
+      tour_type: visit.tourType || null,
       updated_at: new Date().toISOString(),
     }, { onConflict: 'school_id' });
   } catch (e) {
@@ -221,6 +266,18 @@ async function _deleteFromSupabase(schoolId) {
   }
 }
 
+async function _syncWeightsToSupabase(order) {
+  try {
+    await supabase.from('settings').upsert({
+      id: 'global',
+      priority_order: order,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' });
+  } catch (e) {
+    console.warn('Supabase sync failed (weights):', e);
+  }
+}
+
 // ============================================================
 // PULL FROM SUPABASE (call on app load to sync from cloud)
 // ============================================================
@@ -245,6 +302,7 @@ export async function pullFromSupabase() {
             scoreNotes: row.score_notes || {},
             lowInterestReason: row.low_interest_reason,
             lowInterestComment: row.low_interest_comment,
+            tourType: row.tour_type,
             updatedAt: row.updated_at,
           };
         } else if (localTime > remoteTime) {
@@ -320,6 +378,22 @@ export async function pullFromSupabase() {
       for (const school of localCustom) {
         _syncCustomSchoolToSupabase(school);
       }
+    }
+
+    // Pull weights/priority order
+    const { data: settingsRows } = await supabase.from('settings').select('*').eq('id', 'global');
+    if (settingsRows && settingsRows.length > 0 && settingsRows[0].priority_order) {
+      const remoteOrder = settingsRows[0].priority_order;
+      const localOrder = getPriorityOrder();
+      const remoteTime = new Date(settingsRows[0].updated_at).getTime();
+      // Use remote if it has data
+      if (remoteOrder.length > 0) {
+        localStorage.setItem(STORAGE_KEYS.weights, JSON.stringify(remoteOrder));
+      }
+    } else {
+      // Push local weights up
+      const localOrder = getPriorityOrder();
+      if (localOrder.length > 0) _syncWeightsToSupabase(localOrder);
     }
 
     localStorage.setItem(STORAGE_KEYS.lastSync, new Date().toISOString());

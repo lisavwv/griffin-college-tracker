@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { SCORING_CRITERIA, ESSAY_SECTIONS, ALL_ESSAY_QUESTIONS } from './data/questions'
+import { SCORING_CRITERIA, ESSAY_SECTIONS, ALL_ESSAY_QUESTIONS, getCriteriaForTourType } from './data/questions'
 import * as store from './data/store'
 import { SCHOOLS, getSchoolById, getAllSchools } from './data/schools'
 import { getBranding, getLogoUrl } from './data/branding'
@@ -65,6 +65,7 @@ export default function App() {
       {screen === 'essay' && <EssayScreen school={selectedSchool} nav={nav} showToast={showToast} />}
       {screen === 'rankings' && <RankingsScreen nav={nav} />}
       {screen === 'matrix' && <MatrixScreen nav={nav} />}
+      {screen === 'weights' && <WeightsScreen nav={nav} showToast={showToast} />}
       {screen === 'addSchool' && <AddSchoolScreen nav={nav} showToast={showToast} />}
 
       <nav className="bottom-nav">
@@ -76,6 +77,9 @@ export default function App() {
         </button>
         <button className={`nav-item ${screen === 'matrix' ? 'active' : ''}`} onClick={() => nav('matrix')}>
           <span className="nav-icon">📊</span>Matrix
+        </button>
+        <button className={`nav-item ${screen === 'weights' ? 'active' : ''}`} onClick={() => nav('weights')}>
+          <span className="nav-icon">⚙️</span>Priorities
         </button>
       </nav>
 
@@ -187,11 +191,17 @@ function DetailScreen({ school, nav, showToast }) {
     setExpandedSections(prev => ({ ...prev, [id]: !prev[id] }))
   }
 
-  const handleMarkVisited = () => {
+  const handleMarkVisited = (tourType) => {
     const today = new Date().toISOString().split('T')[0]
     store.markVisited(school.id, today)
+    store.saveVisit(school.id, { tourType })
     setVisit(store.getVisit(school.id))
-    showToast('Marked as visited!')
+    showToast(tourType === 'official' ? 'Marked as Official Tour!' : 'Marked as Self-Guided!')
+  }
+
+  const handleChangeTourType = (tourType) => {
+    store.saveVisit(school.id, { tourType })
+    setVisit(store.getVisit(school.id))
   }
 
   const handleTier = (tier) => {
@@ -289,6 +299,7 @@ function DetailScreen({ school, nav, showToast }) {
           <div>
             <span className="badge badge-rank">#{school.rank || 'NR'}</span>
             {visit?.visited && <span className="badge badge-visited" style={{ marginLeft: 6 }}>Visited{visit.dateVisited ? ` ${visit.dateVisited}` : ''}</span>}
+            {visit?.tourType && <span className="badge" style={{ marginLeft: 6, background: 'var(--gray-100)', color: 'var(--gray-600)' }}>{visit.tourType === 'official' ? 'Official Tour' : 'Self-Guided'}</span>}
           </div>
           {totalScore !== null && (
             <div style={{ textAlign: 'right' }}>
@@ -308,9 +319,14 @@ function DetailScreen({ school, nav, showToast }) {
       {/* Action Buttons */}
       <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {!visit?.visited && (
-          <button className="btn btn-success" onClick={handleMarkVisited}>
-            ✓ Mark as Visited
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button className="btn btn-success" style={{ flex: 1 }} onClick={() => handleMarkVisited('official')}>
+              ✓ Official Tour
+            </button>
+            <button className="btn btn-outline" style={{ flex: 1, borderColor: 'var(--green)', color: 'var(--green)' }} onClick={() => handleMarkVisited('self_guided')}>
+              ✓ Self-Guided
+            </button>
+          </div>
         )}
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn btn-primary" style={{ flex: 1 }} onClick={() => nav('score', school)}>
@@ -321,6 +337,21 @@ function DetailScreen({ school, nav, showToast }) {
           </button>
         </div>
       </div>
+
+      {/* Tour Type Toggle */}
+      {visit?.visited && (
+        <div className="tier-options">
+          {['official', 'self_guided'].map(tt => (
+            <button
+              key={tt}
+              className={`tier-option ${visit?.tourType === tt ? 'selected-tour' : ''}`}
+              onClick={() => handleChangeTourType(tt)}
+            >
+              {tt === 'official' ? 'Official Tour' : 'Self-Guided'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Tier Selection */}
       {visit?.visited && (
@@ -411,12 +442,14 @@ function DetailScreen({ school, nav, showToast }) {
 // ============================================================
 function ScoreScreen({ school, nav, showToast }) {
   const existing = store.getVisit(school.id)
+  const tourType = existing?.tourType || 'official'
+  const applicableCriteria = getCriteriaForTourType(tourType)
   const [step, setStep] = useState(0)
   const [scores, setScores] = useState(existing?.scores || {})
   const [notes, setNotes] = useState(existing?.scoreNotes || {})
 
-  const criterion = SCORING_CRITERIA[step]
-  const total = SCORING_CRITERIA.length
+  const criterion = applicableCriteria[step]
+  const total = applicableCriteria.length
 
   const handleScore = (value) => {
     const updated = { ...scores, [criterion.id]: value }
@@ -504,7 +537,7 @@ function ScoreScreen({ school, nav, showToast }) {
       {/* Score Summary at bottom */}
       <div style={{ padding: '16px', marginTop: 12 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-          {SCORING_CRITERIA.map((c, i) => (
+          {applicableCriteria.map((c, i) => (
             <div
               key={c.id}
               onClick={() => setStep(i)}
@@ -524,7 +557,8 @@ function ScoreScreen({ school, nav, showToast }) {
           ))}
         </div>
         <div style={{ textAlign: 'center', marginTop: 8, fontSize: 14, fontWeight: 700, color: 'var(--blue)' }}>
-          Total: {Object.values(scores).reduce((sum, s) => sum + (s || 0), 0)} / 130
+          Total: {applicableCriteria.reduce((sum, c) => sum + (scores[c.id] || 0), 0)} / {applicableCriteria.length * 10}
+          {tourType === 'self_guided' && <span style={{ fontSize: 11, color: 'var(--gray-400)', marginLeft: 6 }}>(Self-Guided)</span>}
         </div>
       </div>
     </>
@@ -641,9 +675,14 @@ function EssayScreen({ school, nav, showToast }) {
 // RANKINGS SCREEN
 // ============================================================
 function RankingsScreen({ nav }) {
-  const rankings = store.getRankings()
+  const [sortBy, setSortBy] = useState('weighted') // 'weighted' or 'raw'
+  const allRankings = store.getRankings()
   const visits = store.getVisits()
   const visitedCount = Object.values(visits).filter(v => v.visited).length
+
+  const rankings = [...allRankings].sort((a, b) =>
+    sortBy === 'weighted' ? b.weightedPct - a.weightedPct : b.rawPct - a.rawPct
+  )
 
   if (rankings.length === 0) {
     return (
@@ -669,23 +708,40 @@ function RankingsScreen({ nav }) {
         <div className="subtitle">{rankings.length} school{rankings.length !== 1 ? 's' : ''} scored</div>
       </div>
 
+      <div className="filter-bar">
+        <button className={`chip ${sortBy === 'weighted' ? 'active' : ''}`} onClick={() => setSortBy('weighted')}>
+          Weighted
+        </button>
+        <button className={`chip ${sortBy === 'raw' ? 'active' : ''}`} onClick={() => setSortBy('raw')}>
+          Raw
+        </button>
+      </div>
+
       {rankings.map((r, i) => {
         const school = getSchoolById(r.schoolId)
         if (!school) return null
         const posClass = i === 0 ? 'gold' : i === 1 ? 'silver' : i === 2 ? 'bronze' : 'other'
+        const displayPct = sortBy === 'weighted' ? r.weightedPct : r.rawPct
+        const otherPct = sortBy === 'weighted' ? r.rawPct : r.weightedPct
         return (
           <div key={r.schoolId} className="ranking-item" onClick={() => nav('detail', school)}>
             <div className={`ranking-position ${posClass}`}>{i + 1}</div>
             <div style={{ flex: 1 }}>
               <div className="school-name">{school.name}</div>
-              <div className="school-location">{school.location}</div>
+              <div className="school-location">
+                {school.location}
+                {r.tourType === 'self_guided' && <span style={{ color: 'var(--gray-400)', fontSize: 11 }}> (Self-Guided)</span>}
+              </div>
               {r.tier && <span className={`badge badge-${r.tier}`} style={{ marginTop: 4 }}>{TIER_LABELS[r.tier] || r.tier}</span>}
               <div className="score-bar-bg">
-                <div className="score-bar-fill" style={{ width: `${(r.total / 130) * 100}%` }} />
+                <div className="score-bar-fill" style={{ width: `${displayPct}%` }} />
               </div>
             </div>
             <div className="ranking-score">
-              {r.total}<span className="ranking-max">/130</span>
+              {displayPct}<span className="ranking-max">%</span>
+              <div style={{ fontSize: 10, color: 'var(--gray-400)', marginTop: 2 }}>
+                {sortBy === 'weighted' ? 'raw' : 'wtd'}: {otherPct}%
+              </div>
             </div>
           </div>
         )
@@ -702,20 +758,25 @@ function MatrixScreen({ nav }) {
   const visits = store.getVisits()
   const allSchools = getAllSchools()
 
+  const weights = store.getWeightsMap()
+
   // Only show schools that have both a tier and scores
   const plotted = allSchools.map(school => {
     const visit = visits[school.id]
     if (!visit?.tier || !visit?.scores) return null
-    const total = Object.values(visit.scores).reduce((sum, s) => sum + (s || 0), 0)
-    return { school, tier: visit.tier, score: total }
+    const tourType = visit.tourType || 'official'
+    const applicable = getCriteriaForTourType(tourType)
+    const weightedSum = applicable.reduce((sum, c) => sum + (visit.scores[c.id] || 0) * (weights[c.id] || 1), 0)
+    const weightedMax = applicable.reduce((sum, c) => sum + 10 * (weights[c.id] || 1), 0)
+    const score = weightedMax > 0 ? Math.round((weightedSum / weightedMax) * 100) : 0
+    return { school, tier: visit.tier, score }
   }).filter(Boolean)
 
   // Tier positions on X axis (0-3 mapped to percentage)
   const TIER_X = { reach: 0, target: 1, safety: 2, low_interest: 3 }
   const TIER_COLS = ['Reach', 'Target', 'Safety', 'Low Interest']
 
-  // Score range for Y axis
-  const maxScore = 130
+  const maxScore = 100
   const minScore = 0
 
   return (
@@ -735,12 +796,12 @@ function MatrixScreen({ nav }) {
       ) : (
         <div className="matrix-container">
           {/* Y-axis label */}
-          <div className="matrix-y-label">Visit Score</div>
+          <div className="matrix-y-label">Weighted Score %</div>
 
           <div className="matrix-chart">
             {/* Y-axis ticks */}
             <div className="matrix-y-axis">
-              {[130, 100, 70, 40, 10].map(v => (
+              {[100, 75, 50, 25, 0].map(v => (
                 <span key={v} className="matrix-y-tick">{v}</span>
               ))}
             </div>
@@ -783,7 +844,7 @@ function MatrixScreen({ nav }) {
                     {isHovered && (
                       <div className="matrix-tooltip">
                         <strong>{school.name}</strong>
-                        <span>{score}/130</span>
+                        <span>{score}% weighted</span>
                       </div>
                     )}
                   </div>
@@ -800,6 +861,90 @@ function MatrixScreen({ nav }) {
           </div>
         </div>
       )}
+    </>
+  )
+}
+
+// ============================================================
+// WEIGHTS / PRIORITIES SCREEN (drag-to-rank)
+// ============================================================
+function WeightsScreen({ nav, showToast }) {
+  const [order, setOrder] = useState(store.getPriorityOrder())
+  const [dragIdx, setDragIdx] = useState(null)
+  const [touchStartY, setTouchStartY] = useState(null)
+  const [touchIdx, setTouchIdx] = useState(null)
+
+  const criteriaMap = {}
+  SCORING_CRITERIA.forEach(c => { criteriaMap[c.id] = c })
+
+  const moveItem = (fromIdx, toIdx) => {
+    if (fromIdx === toIdx) return
+    const updated = [...order]
+    const [moved] = updated.splice(fromIdx, 1)
+    updated.splice(toIdx, 0, moved)
+    setOrder(updated)
+    store.savePriorityOrder(updated)
+  }
+
+  // Desktop drag handlers
+  const handleDragStart = (i) => (e) => {
+    setDragIdx(i)
+    e.dataTransfer.effectAllowed = 'move'
+  }
+  const handleDragOver = (i) => (e) => {
+    e.preventDefault()
+    if (dragIdx !== null && dragIdx !== i) {
+      moveItem(dragIdx, i)
+      setDragIdx(i)
+    }
+  }
+  const handleDragEnd = () => setDragIdx(null)
+
+  // Mobile: move up/down buttons
+  const moveUp = (i) => { if (i > 0) moveItem(i, i - 1) }
+  const moveDown = (i) => { if (i < order.length - 1) moveItem(i, i + 1) }
+
+  return (
+    <>
+      <div className="header">
+        <h1>Priority Rankings</h1>
+        <div className="subtitle">Drag or use arrows to rank what matters most to Griffin. #1 = most important.</div>
+      </div>
+
+      <div style={{ padding: '8px 16px' }}>
+        {order.map((id, i) => {
+          const c = criteriaMap[id]
+          if (!c) return null
+          const weight = SCORING_CRITERIA.length - i
+          return (
+            <div
+              key={id}
+              className={`weight-item ${dragIdx === i ? 'dragging' : ''}`}
+              draggable
+              onDragStart={handleDragStart(i)}
+              onDragOver={handleDragOver(i)}
+              onDragEnd={handleDragEnd}
+            >
+              <div className="weight-rank">#{i + 1}</div>
+              <span style={{ fontSize: 20 }}>{c.icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: 14 }}>{c.title}</div>
+                <div style={{ fontSize: 11, color: 'var(--gray-400)' }}>Weight: {weight}x</div>
+              </div>
+              <div className="weight-arrows">
+                <button className="weight-arrow" onClick={() => moveUp(i)} disabled={i === 0}>▲</button>
+                <button className="weight-arrow" onClick={() => moveDown(i)} disabled={i === order.length - 1}>▼</button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      <div style={{ padding: '16px', textAlign: 'center' }}>
+        <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>
+          Rankings auto-save. #1 gets {SCORING_CRITERIA.length}x weight, #{SCORING_CRITERIA.length} gets 1x weight.
+        </div>
+      </div>
     </>
   )
 }

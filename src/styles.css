@@ -616,6 +616,68 @@ body {
 .tier-option.selected-target { border-color: var(--orange); background: var(--orange-light); color: var(--orange); }
 .tier-option.selected-safety { border-color: var(--green); background: var(--green-light); color: var(--green); }
 .tier-option.selected-low_interest { border-color: var(--gray-400); background: var(--gray-100); color: var(--gray-500); }
+.tier-option.selected-tour { border-color: var(--blue); background: var(--blue-light); color: var(--blue); }
+
+/* Weights / Priority Ranking */
+.weight-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius);
+  margin-bottom: 6px;
+  cursor: grab;
+  transition: transform 0.1s, box-shadow 0.1s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.weight-item:active { cursor: grabbing; }
+.weight-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+  box-shadow: var(--shadow-lg);
+}
+.weight-rank {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--blue);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.weight-arrows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.weight-arrow {
+  background: var(--gray-100);
+  border: none;
+  border-radius: 4px;
+  width: 28px;
+  height: 22px;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-600);
+}
+.weight-arrow:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+.weight-arrow:active:not(:disabled) {
+  background: var(--blue-light);
+}
 
 .low-interest-panel {
   margin: 8px 16px;

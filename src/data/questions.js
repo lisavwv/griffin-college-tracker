@@ -1,84 +1,104 @@
 // Scoring criteria — 13 categories, each rated 1-10
+// selfGuided: true = included in self-guided tour scoring, false = official tour only
 export const SCORING_CRITERIA = [
   {
     id: 'academic_fit',
     title: 'Academic Fit',
     description: 'Programs, majors, and courses for your interests (data science, CS, business, math)',
     icon: '📚',
+    selfGuided: true,
   },
   {
     id: 'campus_vibe',
     title: 'Campus Vibe',
     description: 'Did you feel comfortable here? Could you see yourself here for 4 years?',
     icon: '✨',
+    selfGuided: true,
   },
   {
     id: 'student_energy',
     title: 'Student Energy',
     description: 'Were students engaged, friendly, interesting? Would you want them as classmates?',
     icon: '⚡',
+    selfGuided: true,
   },
   {
     id: 'location',
     title: 'Location & Setting',
     description: 'City, town, or rural? Weather? Distance from home? Surrounding area?',
     icon: '📍',
+    selfGuided: true,
   },
   {
     id: 'size_feel',
     title: 'Size & Feel',
     description: 'Right number of students? Felt too big, too small, or just right?',
     icon: '🏛️',
+    selfGuided: true,
   },
   {
     id: 'facilities',
     title: 'Dorms & Facilities',
     description: 'Housing, dining, libraries, labs, gym — quality and condition?',
     icon: '🏠',
+    selfGuided: false,
   },
   {
     id: 'athletics',
     title: 'Athletics & Spirit',
     description: 'Division level? Baseball program? Game day culture? School spirit?',
     icon: '⚾',
+    selfGuided: true,
   },
   {
     id: 'entrepreneurship',
     title: 'Entrepreneurship & Innovation',
     description: 'Startup programs, business incubators, maker spaces, innovation culture?',
     icon: '🚀',
+    selfGuided: true,
   },
   {
     id: 'research',
     title: 'Research & Hands-On',
     description: 'Undergraduate research, co-ops, internship access, study abroad?',
     icon: '🔬',
+    selfGuided: false,
   },
   {
     id: 'social',
     title: 'Social Scene',
     description: 'Greek life? Clubs? Did you vibe with the people? Night life / weekend culture?',
     icon: '🎉',
+    selfGuided: false,
   },
   {
     id: 'career',
     title: 'Career Outcomes',
     description: 'Where do grads go? Starting salaries? Alumni network strength?',
     icon: '💼',
+    selfGuided: true,
   },
   {
     id: 'value',
     title: 'Financial Value',
     description: 'Cost vs. quality? Aid available? Is it worth the investment?',
     icon: '💰',
+    selfGuided: true,
   },
   {
     id: 'gut',
     title: 'Gut Feeling',
     description: 'Your overall instinct. If you got in everywhere, would you pick this one?',
     icon: '🎯',
+    selfGuided: true,
   },
 ];
+
+// Helper: get criteria for a tour type
+export function getCriteriaForTourType(tourType) {
+  if (tourType === 'self_guided') return SCORING_CRITERIA.filter(c => c.selfGuided);
+  return SCORING_CRITERIA; // official gets all 13
+}
 
 // Essay note prompts — organized by section
 export const ESSAY_SECTIONS = [
