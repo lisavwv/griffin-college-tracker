@@ -33,8 +33,9 @@ function SchoolLogo({ schoolId, size = 36, fallback = '—' }) {
 // APP
 // ============================================================
 export default function App() {
-  const [screen, setScreen] = useState('schools') // schools, detail, score, essay, rankings, matrix, addSchool
+  const [screen, setScreen] = useState('schools') // schools, detail, score, essay, rankings, matrix, addSchool, compare
   const [selectedSchool, setSelectedSchool] = useState(null)
+  const [compareIds, setCompareIds] = useState([])
   const [toast, setToast] = useState(null)
   const [synced, setSynced] = useState(false)
 
@@ -57,9 +58,11 @@ export default function App() {
     window.scrollTo(0, 0)
   }
 
+  const compareSchools = getAllSchools().filter(s => compareIds.includes(s.id))
+
   return (
     <div className="app">
-      {screen === 'schools' && <SchoolsScreen nav={nav} />}
+      {screen === 'schools' && <SchoolsScreen nav={nav} compareIds={compareIds} setCompareIds={setCompareIds} showToast={showToast} />}
       {screen === 'detail' && <DetailScreen school={selectedSchool} nav={nav} showToast={showToast} />}
       {screen === 'score' && <ScoreScreen school={selectedSchool} nav={nav} showToast={showToast} />}
       {screen === 'essay' && <EssayScreen school={selectedSchool} nav={nav} showToast={showToast} />}
@@ -67,6 +70,7 @@ export default function App() {
       {screen === 'matrix' && <MatrixScreen nav={nav} />}
       {screen === 'weights' && <WeightsScreen nav={nav} showToast={showToast} />}
       {screen === 'addSchool' && <AddSchoolScreen nav={nav} showToast={showToast} />}
+      {screen === 'compare' && <CompareScreen schools={compareSchools} nav={nav} setCompareIds={setCompareIds} />}
 
       <nav className="bottom-nav">
         <button className={`nav-item ${screen === 'schools' ? 'active' : ''}`} onClick={() => nav('schools')}>
@@ -91,9 +95,43 @@ export default function App() {
 // ============================================================
 // SCHOOLS LIST SCREEN
 // ============================================================
-function SchoolsScreen({ nav }) {
+const SORT_OPTIONS = [
+  { id: 'rank',       label: 'Rank' },
+  { id: 'acceptance', label: 'Acceptance' },
+  { id: 'name',       label: 'A–Z' },
+  { id: 'cost',       label: 'Cost' },
+  { id: 'size',       label: 'Size' },
+  { id: 'sat',        label: 'SAT' },
+]
+
+function parseAcceptance(s) { return parseFloat(s) || 100 }
+function parseCost(s) { return parseInt((s || '0').replace(/[$,]/g, '')) || 0 }
+function parseSAT(s) {
+  const parts = (s || '').split('-').map(Number).filter(Boolean)
+  return parts.length === 2 ? (parts[0] + parts[1]) / 2 : parts[0] || 0
+}
+
+function sortSchools(schools, sortBy, sortDir) {
+  const dir = sortDir === 'asc' ? 1 : -1
+  return [...schools].sort((a, b) => {
+    let va, vb
+    if (sortBy === 'rank')       { va = a.rank || 999;              vb = b.rank || 999 }
+    else if (sortBy === 'acceptance') { va = parseAcceptance(a.acceptanceRate); vb = parseAcceptance(b.acceptanceRate) }
+    else if (sortBy === 'name')  { return dir * a.name.localeCompare(b.name) }
+    else if (sortBy === 'cost')  { va = parseCost(a.tuition);       vb = parseCost(b.tuition) }
+    else if (sortBy === 'size')  { va = a.undergradEnrollment || 0; vb = b.undergradEnrollment || 0 }
+    else if (sortBy === 'sat')   { va = parseSAT(a.satRange);       vb = parseSAT(b.satRange) }
+    else return 0
+    return dir * (va - vb)
+  })
+}
+
+function SchoolsScreen({ nav, compareIds, setCompareIds, showToast }) {
   const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState('all') // all, visited, not_visited, reach, target, safety
+  const [filter, setFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('rank')
+  const [sortDir, setSortDir] = useState('asc')
+  const [compareMode, setCompareMode] = useState(false)
   const visits = store.getVisits()
   const allSchools = getAllSchools()
 
@@ -110,12 +148,34 @@ function SchoolsScreen({ nav }) {
     return matchesSearch && visit?.tier !== 'low_interest'
   })
 
+  const sorted = sortSchools(filtered, sortBy, sortDir)
   const visitedCount = Object.values(visits).filter(v => v.visited).length
+
+  const toggleCompareMode = () => {
+    setCompareMode(m => !m)
+    if (compareMode) setCompareIds([])
+  }
+
+  const toggleSchool = (school) => {
+    setCompareIds(ids => {
+      if (ids.includes(school.id)) return ids.filter(id => id !== school.id)
+      if (ids.length >= 3) { showToast('Max 3 schools to compare'); return ids }
+      return [...ids, school.id]
+    })
+  }
 
   return (
     <>
       <div className="header">
-        <h1>Griffin's College Tracker</h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h1>Griffin's College Tracker</h1>
+          <button
+            className={`compare-toggle-btn ${compareMode ? 'active' : ''}`}
+            onClick={toggleCompareMode}
+          >
+            {compareMode ? '✕ Done' : '⊕ Compare'}
+          </button>
+        </div>
         <div className="subtitle">{allSchools.length} schools &middot; {visitedCount} visited</div>
       </div>
 
@@ -149,11 +209,43 @@ function SchoolsScreen({ nav }) {
         ))}
       </div>
 
+      <div className="sort-bar">
+        <span className="sort-label">Sort</span>
+        <div className="sort-options">
+          {SORT_OPTIONS.map(o => (
+            <button
+              key={o.id}
+              className={`sort-chip ${sortBy === o.id ? 'active' : ''}`}
+              onClick={() => setSortBy(o.id)}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+        <button
+          className="sort-dir-btn"
+          onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')}
+          title={sortDir === 'asc' ? 'Ascending' : 'Descending'}
+        >
+          {sortDir === 'asc' ? '↑' : '↓'}
+        </button>
+      </div>
+
       <div className="school-list">
-        {filtered.map(school => {
+        {sorted.map(school => {
           const visit = visits[school.id]
+          const isSelected = compareIds.includes(school.id)
           return (
-            <div key={school.id} className="school-list-item" onClick={() => nav('detail', school)}>
+            <div
+              key={school.id}
+              className={`school-list-item ${compareMode && isSelected ? 'compare-selected' : ''}`}
+              onClick={() => compareMode ? toggleSchool(school) : nav('detail', school)}
+            >
+              {compareMode && (
+                <div className={`compare-check ${isSelected ? 'checked' : ''}`}>
+                  {isSelected ? '✓' : ''}
+                </div>
+              )}
               <SchoolLogo schoolId={school.id} size={36} fallback={school.rank || '—'} />
               <div className="school-info">
                 <div className="school-name">{school.name}</div>
@@ -163,17 +255,51 @@ function SchoolsScreen({ nav }) {
                 {visit?.visited && <span className="badge badge-visited">Visited</span>}
                 {visit?.tier && <span className={`badge badge-${visit.tier}`}>{TIER_LABELS[visit.tier] || visit.tier}</span>}
               </div>
-              <span className="chevron">›</span>
+              {!compareMode && <span className="chevron">›</span>}
             </div>
           )
         })}
       </div>
 
-      <div style={{ padding: '16px' }}>
-        <button className="btn btn-outline" onClick={() => nav('addSchool')}>
-          + Add Custom School
-        </button>
-      </div>
+      {!compareMode && (
+        <div style={{ padding: '16px' }}>
+          <button className="btn btn-outline" onClick={() => nav('addSchool')}>
+            + Add Custom School
+          </button>
+        </div>
+      )}
+
+      {/* Compare tray */}
+      {compareMode && (
+        <div className="compare-tray">
+          <div className="compare-tray-slots">
+            {[0, 1, 2].map(i => {
+              const schoolId = compareIds[i]
+              const school = schoolId ? getAllSchools().find(s => s.id === schoolId) : null
+              return (
+                <div key={i} className={`compare-tray-slot ${school ? 'filled' : 'empty'}`}>
+                  {school ? (
+                    <>
+                      <SchoolLogo schoolId={school.id} size={28} fallback={school.rank || '—'} />
+                      <span className="compare-tray-name">{school.name.split(' ')[0]}</span>
+                      <button className="compare-tray-remove" onClick={() => toggleSchool(school)}>×</button>
+                    </>
+                  ) : (
+                    <span className="compare-tray-placeholder">+ Add</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          <button
+            className="compare-tray-btn"
+            disabled={compareIds.length < 2}
+            onClick={() => { setCompareMode(false); nav('compare') }}
+          >
+            Compare{compareIds.length >= 2 ? ` (${compareIds.length})` : ''}
+          </button>
+        </div>
+      )}
     </>
   )
 }
@@ -229,6 +355,14 @@ function DetailScreen({ school, nav, showToast }) {
   const essayNotes = store.getEssayNotes(school.id)
   const essayCount = Object.values(essayNotes).filter(n => n && n.trim()).length
 
+  const handleExportPDF = () => {
+    // Expand all sections first
+    const allIds = ['admissions', 'academics', 'campus', 'cost', 'culture']
+    setExpandedSections(Object.fromEntries(allIds.map(id => [id, true])))
+    // Give React a tick to render, then print
+    setTimeout(() => window.print(), 80)
+  }
+
   const statSections = [
     {
       id: 'admissions', title: 'Admissions', items: [
@@ -275,7 +409,8 @@ function DetailScreen({ school, nav, showToast }) {
     <>
       <div className="detail-hero" style={{ background: `linear-gradient(135deg, ${branding.color}, ${branding.color}dd)` }}>
         <div className="header-back">
-          <button className="back-btn" style={{ color: 'white' }} onClick={() => nav('schools')}>← Back</button>
+          <button className="back-btn no-print" style={{ color: 'white' }} onClick={() => nav('schools')}>← Back</button>
+          <button className="pdf-export-btn no-print" onClick={handleExportPDF}>📄 Export PDF</button>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '0 16px 16px' }}>
           {logoUrl && (
@@ -317,7 +452,7 @@ function DetailScreen({ school, nav, showToast }) {
       </div>
 
       {/* Action Buttons */}
-      <div style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div className="no-print" style={{ padding: '0 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
         {!visit?.visited && (
           <div style={{ display: 'flex', gap: 8 }}>
             <button className="btn btn-success" style={{ flex: 1 }} onClick={() => handleMarkVisited('official')}>
@@ -340,7 +475,7 @@ function DetailScreen({ school, nav, showToast }) {
 
       {/* Tour Type Toggle */}
       {visit?.visited && (
-        <div className="tier-options">
+        <div className="tier-options no-print">
           {['official', 'self_guided'].map(tt => (
             <button
               key={tt}
@@ -356,7 +491,7 @@ function DetailScreen({ school, nav, showToast }) {
       {/* Tier Selection */}
       {visit?.visited && (
         <>
-          <div className="tier-options">
+          <div className="tier-options no-print">
             {['reach', 'target', 'safety', 'low_interest'].map(tier => (
               <button
                 key={tier}
@@ -418,7 +553,7 @@ function DetailScreen({ school, nav, showToast }) {
 
       {/* Delete custom school */}
       {school.isCustom && (
-        <div style={{ padding: '24px 16px' }}>
+        <div className="no-print" style={{ padding: '24px 16px' }}>
           <button
             className="btn btn-danger"
             onClick={() => {
@@ -433,6 +568,54 @@ function DetailScreen({ school, nav, showToast }) {
           </button>
         </div>
       )}
+
+      {/* Print-only: Score breakdown */}
+      {visit?.scores && (
+        <div className="print-only print-section">
+          <div className="print-section-title">Visit Scorecard</div>
+          {getCriteriaForTourType(visit.tourType || 'official').map(c => {
+            const score = visit.scores[c.id]
+            if (!score) return null
+            return (
+              <div key={c.id} className="print-score-row">
+                <span className="print-score-label">{c.icon} {c.title}</span>
+                <div className="print-score-bar-wrap">
+                  <div className="print-score-bar" style={{ width: `${score * 10}%`, background: branding.color }} />
+                </div>
+                <span className="print-score-num">{score}/10</span>
+                {visit.scoreNotes?.[c.id] && (
+                  <span className="print-score-note">{visit.scoreNotes[c.id]}</span>
+                )}
+              </div>
+            )
+          })}
+          <div className="print-score-total">
+            Total: {totalScore} / {getCriteriaForTourType(visit.tourType || 'official').length * 10}
+          </div>
+        </div>
+      )}
+
+      {/* Print-only: Essay notes */}
+      {essayCount > 0 && (
+        <div className="print-only print-section">
+          <div className="print-section-title">Why This School — Notes</div>
+          {ALL_ESSAY_QUESTIONS.map(q => {
+            const note = essayNotes[q.id]
+            if (!note?.trim()) return null
+            return (
+              <div key={q.id} className="print-essay-item">
+                <div className="print-essay-prompt">{q.prompt}</div>
+                <div className="print-essay-text">{note}</div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Print-only: footer */}
+      <div className="print-only print-footer">
+        Griffin's College Tracker &middot; Generated {new Date().toLocaleDateString()}
+      </div>
     </>
   )
 }
@@ -944,6 +1127,154 @@ function WeightsScreen({ nav, showToast }) {
         <div style={{ fontSize: 12, color: 'var(--gray-400)' }}>
           Rankings auto-save. #1 gets {SCORING_CRITERIA.length}x weight, #{SCORING_CRITERIA.length} gets 1x weight.
         </div>
+      </div>
+    </>
+  )
+}
+
+// ============================================================
+// COMPARE SCREEN
+// ============================================================
+function CompareScreen({ schools, nav, setCompareIds }) {
+  const visits = store.getVisits()
+
+  const COMPARE_ROWS = [
+    { label: 'US News Rank',    get: s => s.rank ? `#${s.rank}` : 'NR',                  raw: s => s.rank || 9999,              bestLow: true },
+    { label: 'Acceptance',      get: s => s.acceptanceRate || '—',                         raw: s => parseAcceptance(s.acceptanceRate), bestLow: true },
+    { label: 'SAT Range',       get: s => s.satRange || '—',                               raw: s => parseSAT(s.satRange) },
+    { label: 'ACT Range',       get: s => s.actRange || '—' },
+    { label: 'Total Cost',      get: s => s.tuition || '—',                                raw: s => parseCost(s.tuition),        bestLow: true },
+    { label: 'UG Enrollment',   get: s => s.undergradEnrollment?.toLocaleString() || '—' },
+    { label: 'Student:Faculty', get: s => s.studentFacultyRatio || '—' },
+    { label: 'Grad Rate',       get: s => s.gradRate || '—',                               raw: s => parseFloat(s.gradRate) || 0, bestHigh: true },
+    { label: 'Setting',         get: s => s.setting || '—' },
+    { label: 'Greek Life',      get: s => s.greekLife || '—' },
+    { label: 'Athletics',       get: s => s.athletics || '—' },
+    { label: 'Financial Aid',   get: s => s.financialAid || '—' },
+    { label: 'Top Programs',    get: s => s.topPrograms || '—' },
+    { label: 'Known For',       get: s => s.knownFor || '—' },
+    {
+      label: 'Your Score',
+      get: s => {
+        const v = visits[s.id]
+        if (!v?.scores) return '—'
+        const sum = Object.values(v.scores).reduce((a, b) => a + (b || 0), 0)
+        return `${sum} pts`
+      },
+      raw: s => {
+        const v = visits[s.id]
+        if (!v?.scores) return 0
+        return Object.values(v.scores).reduce((a, b) => a + (b || 0), 0)
+      },
+      bestHigh: true,
+    },
+    {
+      label: 'Your Tier',
+      get: s => {
+        const v = visits[s.id]
+        return v?.tier ? (TIER_LABELS[v.tier] || v.tier) : '—'
+      },
+    },
+  ]
+
+  const getBestIdx = (row) => {
+    if (!row.raw) return -1
+    const raws = schools.map(s => row.raw(s))
+    const nonZero = raws.filter(r => r > 0 && r < 9999)
+    if (nonZero.length < 2) return -1
+    if (row.bestLow) {
+      const min = Math.min(...raws.filter(r => r < 9999))
+      return raws.indexOf(min)
+    }
+    if (row.bestHigh) {
+      const max = Math.max(...raws)
+      return max === 0 ? -1 : raws.indexOf(max)
+    }
+    return -1
+  }
+
+  if (schools.length < 2) {
+    return (
+      <>
+        <div className="header">
+          <div className="header-back">
+            <button className="back-btn" onClick={() => nav('schools')}>← Back</button>
+          </div>
+          <h1>Compare Schools</h1>
+        </div>
+        <div className="empty-state">
+          <div className="icon">⚖️</div>
+          <h3>Select schools to compare</h3>
+          <p>Go back and select 2–3 schools using Compare mode.</p>
+          <button className="btn btn-primary btn-sm" onClick={() => nav('schools')}>← Back to Schools</button>
+        </div>
+      </>
+    )
+  }
+
+  const colWidth = schools.length === 2 ? 160 : 130
+
+  return (
+    <>
+      <div className="header">
+        <div className="header-back">
+          <button className="back-btn" onClick={() => nav('schools')}>← Back</button>
+        </div>
+        <h1>Compare Schools</h1>
+        <div className="subtitle">{schools.length} schools selected</div>
+      </div>
+
+      <div className="compare-scroll">
+        {/* Sticky school header row */}
+        <div className="compare-header-row" style={{ gridTemplateColumns: `90px repeat(${schools.length}, ${colWidth}px)` }}>
+          <div className="compare-label-cell compare-header-label" />
+          {schools.map(s => {
+            const branding = getBranding(s.id)
+            return (
+              <div key={s.id} className="compare-school-header" style={{ borderBottom: `3px solid ${branding.color}` }}>
+                <SchoolLogo schoolId={s.id} size={30} fallback={s.rank || '—'} />
+                <div className="compare-school-name">{s.name}</div>
+                <div className="compare-school-loc">{s.location}</div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Data rows */}
+        {COMPARE_ROWS.map((row, rowIdx) => {
+          const bestIdx = getBestIdx(row)
+          return (
+            <div
+              key={row.label}
+              className="compare-data-row"
+              style={{ gridTemplateColumns: `90px repeat(${schools.length}, ${colWidth}px)`, background: rowIdx % 2 === 0 ? 'white' : 'var(--gray-50)' }}
+            >
+              <div className="compare-label-cell" style={{ background: rowIdx % 2 === 0 ? 'white' : 'var(--gray-50)' }}>
+                {row.label}
+              </div>
+              {schools.map((s, i) => (
+                <div
+                  key={s.id}
+                  className={`compare-value-cell ${i === bestIdx ? 'compare-best' : ''}`}
+                >
+                  {row.get(s)}
+                </div>
+              ))}
+            </div>
+          )
+        })}
+
+        {/* Bottom padding */}
+        <div style={{ height: 24 }} />
+      </div>
+
+      <div style={{ padding: '12px 16px' }}>
+        <button
+          className="btn btn-outline"
+          onClick={() => { setCompareIds([]); nav('schools') }}
+        >
+          Change Schools
+        </button>
       </div>
     </>
   )
